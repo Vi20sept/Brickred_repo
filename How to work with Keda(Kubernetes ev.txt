@@ -1,0 +1,447 @@
+How to work with Keda(Kubernetes event driven autoscaling) in K8s 
+1)Connect to aks(D4ds_v5)
+2)Install Keda
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+
+install
+helm install keda kedacore/keda --namespace keda --create-namespace
+
+verify
+kubectl get pods -n keda
+
+Create Storage Account
+Create Queue
+$STORAGE_KEY = az storage account keys list `
+-g kedarg01 `
+-n kedademostorage01 `
+--query "[0].value" `
+-o tsv
+
+
+az storage queue create `
+--name orders `
+--account-name kedademostorage01 `
+--account-key $STORAGE_KEY
+
+
+Create Kubernetes Secret
+kubectl create secret generic azure-storage-secret -n keda-demo --from-literal=connection="<paste-connection-string>"
+
+kubectl create namespace keda-demo
+
+kubectl create secret generic azure-storage-secret -n keda-demo --from-literal=connection="DefaultEndpointsProtocol=https;AccountName=kedademostorage01;AccountKey=Rd6if7E5hYKdbr3EqKzAWm4Csk9F4uqjWiJ81O3IaBI7cNw4bBI71g7rl05YZecEyWvGVYfbbN26+AStGUJN3A==;EndpointSuffix=core.windows.net"
+Verify
+kubectl get secret -n keda-demo
+
+
+Deploy Worker Application
+
+nano worker-deployment.yml
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: worker
+  namespace: keda-demo
+
+spec:
+  replicas: 0
+
+  selector:
+    matchLabels:
+      app: worker
+
+  template:
+    metadata:
+      labels:
+        app: worker
+
+    spec:
+      containers:
+      - name: worker
+
+        image: busybox
+
+        command:
+        - sh
+        - -c
+
+        - |
+          while true
+          do
+            echo "Processing messages..."
+            sleep 30
+          done
+
+
+kubectl apply -f worker-deployment.yml
+
+kubectl get pods -n keda-demo
+
+
+Create TriggerAuthentication
+
+triggerauth.yml
+
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+
+metadata:
+  name: azure-auth
+  namespace: keda-demo
+
+spec:
+  secretTargetRef:
+  - parameter: connection
+    name: azure-storage-secret
+    key: connection
+
+kubectl apply -f triggerauth.yml
+
+
+Create ScaledObject
+
+scaledobject.yml
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+
+metadata:
+  name: queue-scaler
+  namespace: keda-demo
+
+spec:
+  scaleTargetRef:
+    name: worker
+
+  minReplicaCount: 0
+
+  maxReplicaCount: 10
+
+  pollingInterval: 10
+
+  cooldownPeriod: 30
+
+  triggers:
+  - type: azure-queue
+
+    metadata:
+      queueName: orders
+      queueLength: "5"
+
+    authenticationRef:
+      name: azure-auth
+
+kubectl apply -f scaledobject.yml
+
+
+Verify Keda
+
+kubectl get scaledobject -n keda-demo
+
+kubectl get hpa -n keda-demo
+
+
+Watch Pods
+kubectl get pods -n keda-demo -w
+ no resources found
+
+
+Add Messages to Queue
+
+for ($i = 1; $i -le 20; $i++) {
+    az storage message put `
+      --queue-name orders `
+      --content "order$i" `
+      --account-name kedademostorage01 `
+      --account-key $STORAGE_KEY
+}
+
+
+Observe Scaling
+kubectl get deployment worker -n keda-demo
+
+or
+kubectl get pods -n keda-demo
+
+
+How to implement security not directly using connection string
+
+1)Enable Workload Identity from Azure Portal
+AKS Cluster
+→ Settings
+→ Security
+
+Look for 
+Workload Identity and then enable it
+
+2)Create User Assigned Managed Identity from Portal
+Azure Portal
+→ Managed Identities
+→ Create
+
+Subscription: Your Subscription
+Resource Group: Your RG
+Region: Same Region as AKS
+Name: keda-storage-mi
+
+Look for and copy it
+Client ID
+Principal ID
+
+
+Managed identity
+Client ID
+e715d441-a8d6-4aad-88f1-2438a632b672
+principal Id
+a183815f-7097-4991-a7f4-d06ac401c042
+
+
+3)Grant Storage Queue Permissions from Portal
+Storage Account
+→ Access Control (IAM)
+→ Add Role Assignment
+
+role
+Storage Queue Data Contributor
+
+members
+Managed Identity
+then save it.
+
+4)Create Federated Credential from Portal
+Managed Identity
+→ keda-storage-mi
+→ Federated Credentials
+→ Add Credential
+
+choose
+Scenario:
+Kubernetes Accessing Azure Resources
+
+Namespace
+keda-demo
+
+Service Account
+keda-sa
+
+Credential Name
+keda-federation
+
+Cluster Issuer URL
+AKS Cluster
+→ Settings
+→ Workload Identity
+
+Look For
+https://eastus.oic.prod-aks.azure.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
+
+
+
+serviceaccount.yml
+apiVersion: v1
+kind: ServiceAccount
+
+metadata:
+  name: keda-sa
+  namespace: keda-demo
+
+  annotations:
+    azure.workload.identity/client-id: "e715d441-a8d6-4aad-88f1-2438a632b672"
+
+kubectl apply -f serviceaccount.yml
+Verify
+
+kubectl get sa -n keda-demo
+
+
+updated worker-deployment.yml
+kubectl get deployment worker -n keda-demo -o yaml > worker-deployment-current.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: worker
+  namespace: keda-demo
+
+spec:
+  replicas: 0
+
+  selector:
+    matchLabels:
+      app: worker
+
+  template:
+    metadata:
+      labels:
+        app: worker
+        azure.workload.identity/use: "true"
+
+    spec:
+      serviceAccountName: keda-sa
+
+      containers:
+      - name: worker
+        image: busybox
+
+        command:
+        - sh
+        - -c
+        - |
+          while true
+          do
+            echo "Processing messages..."
+            sleep 30
+          done
+
+
+kubectl apply -f worker-deployment.yml
+kubectl get deployment worker -n keda-demo -o yaml > worker-deployment-current.yaml
+
+updated trigger auth
+
+triggerauth.yml
+
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+
+metadata:
+  name: azure-auth
+  namespace: keda-demo
+
+spec:
+  podIdentity:
+    provider: azure-workload
+
+kubectl apply -f triggerauth.yml
+
+
+updated scaledobject
+
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+
+metadata:
+  name: queue-scaler
+  namespace: keda-demo
+
+spec:
+  scaleTargetRef:
+    name: worker
+
+  minReplicaCount: 0
+  maxReplicaCount: 10
+
+  pollingInterval: 10
+  cooldownPeriod: 30
+
+  triggers:
+  - type: azure-queue
+    metadata:
+      queueName: orders
+      queueLength: "5"
+      accountName: kedademostorage01
+
+    authenticationRef:
+      name: azure-auth
+
+kubectl apply -f scaledobject.yml
+
+How to check the scaleobject
+kubectl describe scaledobject queue-scaler -n keda-demo
+
+
+then run below command
+for ($i = 1; $i -le 20; $i++) {
+    az storage message put `
+      --queue-name orders `
+      --content "order$i" `
+      --account-name kedademostorage01 `
+      --auth-mode login
+}
+
+
+
+Azure policy for SAS
+
+{
+  "mode": "Indexed",
+  "policyRule": {
+    "if": {
+      "allOf": [
+        {
+          "field": "type",
+          "equals": "Microsoft.Storage/storageAccounts"
+        },
+        {
+          "anyOf": [
+            {
+              "field": "Microsoft.Storage/storageAccounts/allowSharedKeyAccess",
+              "equals": true
+            },
+            {
+              "field": "Microsoft.Storage/storageAccounts/allowSharedKeyAccess",
+              "exists": false
+            }
+          ]
+        }
+      ]
+    },
+    "then": {
+      "effect": "deny"
+    }
+  },
+  "parameters": {}
+}
+
+
+
+
+
+1)A20 Gayatri Kunj socity near Anup Estate Bharat part plot ke pass , Rabri Colony 
+2)
+
+
+windows server 2025
+
+https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025?msockid=2c12b4bb207a663d0c82a32a2116678d
+
+
+
+1)Storage SAS disable
+2)Storage disable public access
+3)Policy for "Apply an Azure Policy to enforce soft delete and purge protection on all future Key Vaults."
+
+
+
+Hi Lavi,
+
+1)We have to create a list of last date modified file in the storage account and these storage account are nearly 81 with multiple containers and these containers have multiple blobs in it which is taking to create a final list.
+
+2)I have a task pending for policy creation which is nearly 3 , while creating policy we have to go through multiple scenarios which is taking time to complete.
+
+3)We have total of 81 storage account out of which some of them is to be deleted on which we are working , for the remaining storage account we have to connect with each developer lead or developer to know how SAS is working for there application so that we can suggest alternate as per their need , nearly each storage account will take 1 or 2days(which can be less or more) takes to get the details.
+SAS disable is put to hold because first we have to find the last modified list of storage account then SAS disable will be easier to us , same has been discussed with Stephen.
+ 
+
+As per the last date given in the project is 15th August 2026 , I won't be able to complete all the task assigned.
+
+
+DB CI_CD(Amit)
+
+1)Migrate App service application to AKS for flexibility of configuration without downtime.
+2)Introduce DB CI_CD so that no one direct access to the Sql server  and its database.
+3)Make Centralized Virtual network.
+4)Introduce application gateway with WAF policy for application deployed.
+5)Introduce Owasp and Zap for pipeline.
+6)Automatic assign task to SonarQube whenever there issue in CI.
+7)Introduce VDI so that no one can use his/her personal laptop , also restriction for copy and paste.
+8)No Public ip , only private Ip and that can be access through VPN and firewall route.
+9)DR sites for the critical sites in which only disk is shifted (cost optimized).
+10)Introducing the Promethus and Grafana as a monitoring tool for all its web application.
+
+

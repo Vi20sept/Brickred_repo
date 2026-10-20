@@ -1,0 +1,347 @@
+Step 1 Create Namespace
+kubectl create namespace demo
+
+
+Step 2 Deploy MySQL Backend
+mysql-deployment.yml
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: mysql
+  namespace: demo
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+
+    spec:
+      containers:
+      - name: mysql
+
+        image: mysql:8.0
+
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: root123
+
+        - name: MYSQL_DATABASE
+          value: appdb
+
+        ports:
+        - containerPort: 3306
+
+
+
+
+Now apply
+kubectl apply -f mysql-deployment.yml
+
+
+
+Step 3 Create MySQL Service
+
+mysql-service.yml
+
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: mysql-service
+  namespace: demo
+
+spec:
+  selector:
+    app: mysql
+
+  ports:
+  - port: 3306
+    targetPort: 3306
+
+  type: ClusterIP
+
+
+now apply
+
+kubectl apply -f mysql-service.yml
+
+
+
+Step 4 Create Frontend Flask App
+
+create
+app.py
+
+from flask import Flask,request
+import mysql.connector
+
+app=Flask(__name__)
+
+@app.route("/")
+def home():
+    return """
+    <form method='post' action='/save'>
+    Name:<input name='name'>
+    <input type='submit'>
+    </form>
+    """
+
+@app.route("/save",methods=["POST"])
+def save():
+
+    name=request.form["name"]
+
+    conn=mysql.connector.connect(
+        host="mysql-service",
+        user="root",
+        password="root123",
+        database="appdb"
+    )
+
+    cursor=conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100))
+    """)
+
+    cursor.execute(
+        "INSERT INTO users(name) VALUES(%s)",
+        (name,)
+    )
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return f"{name} inserted successfully"
+
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=5000)
+
+
+
+Step 5 Create Dockerfile
+FROM python:3.11
+
+WORKDIR /app
+
+COPY app.py .
+
+RUN pip install flask mysql-connector-python
+
+EXPOSE 5000
+
+CMD ["python","app.py"]
+
+
+
+Step 6 Build and Push Image to ACR
+az acr login --name myacr
+docker build -t myacr.azurecr.io/flaskdemo:v1 .
+docker push myacr.azurecr.io/flaskdemo:v1
+
+
+Step 7 Frontend Deployment
+
+frontend-deployment.yml
+
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: frontend
+  namespace: demo
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: frontend
+
+  template:
+    metadata:
+      labels:
+        app: frontend
+
+    spec:
+      containers:
+      - name: frontend
+
+        image: myacr.azurecr.io/flaskdemo:v1
+
+        ports:
+        - containerPort: 5000
+
+
+now apply
+kubectl apply -f frontend-deployment.yml
+
+
+Step 8 Frontend Service
+
+frontend-service.yml
+
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: frontend-service
+  namespace: demo
+
+spec:
+  selector:
+    app: frontend
+
+  ports:
+  - port: 80
+    targetPort: 5000
+
+  type: ClusterIP
+
+
+
+now apply
+kubectl apply -f frontend-service.yml
+
+Step 9 Ingress
+
+helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-basic --create-namespace --set controller.service.loadBalancerIP="20.69.19.114" --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"="terrarg01dev"
+
+
+ingress.yml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: frontend-ingress
+  namespace: demo
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+
+        backend:
+          service:
+            name: frontend-service
+
+            port:
+              number: 80
+
+Now apply
+
+kubectl apply -f ingress.yml
+
+Step 10 Verify
+kubectl get pods -n demo
+kubectl get svc -n demo
+kubectl get ingress -n demo
+
+
+now take the ingress public ip and insert he value 
+
+Step 12 Verify Data in MySQL
+
+connect to MySQL pod
+kubectl exec -it deployment/mysql -n demo -- bash
+
+login
+mysql -uroot -proot123
+
+SQL command
+use appdb;
+select * from users;
+
+Now if the inserted value is what you insert then everything is fine.
+
+
+
+1)keda
+3)which is good application gateway or the frontdoor
+2)what we have to use frontdoor or traffic manager
+3)how to create deployment yaml for 6 replicas 2 in each node.
+"I would use replicas: 6 along with topologySpreadConstraints or Pod Anti-Affinity to distribute pods evenly across nodes and improve high availability."
+4)why Argo cd is good in compare to other CD  
+5)What is the difference between HPA and VPA and which one i will go with.
+6)terraform state rm
+7)what is pod static
+A Static Pod is a pod managed directly by the kubelet from a manifest file on the node, without being controlled by the API server or a Deployment.
+
+1)VNet
+VNet: 10.0.0.0/16
+Subnet1: 10.0.1.0/24
+
+Select the Virtual network gateway under the vnet
+GatewaySubnet: 10.0.255.0/27
+
+2)Create Azure VPN Gateway
+Name: synapse-vpn-gateway
+Gateway Type: VPN
+VPN Type: Route-based
+SKU: VpnGw1
+Generation: Generation2
+Virtual Network:
+Your Synapse VNet
+Public IP:
+Create New
+
+While creating the P2S 
+Configure address pool:172.16.201.0/24
+Select the option OPEN SSL for Microsoft authentication
+Configure Audience
+41b23e61-6c1e-4545-b367-cd054e0ed4b4
+
+Configure Issuer
+https://sts.windows.net/<TenantID>/
+
+Then click on save and then download the VPN file and then extract it.
+
+How to download the Azure VPN Client
+https://www.microsoft.com/en-us/download/details.aspx?id=108598
+after download extract the file and then right click on powershell command with run with admin
+after successful download , on your windows machine search for Azure VPN
+Then click on + icon and then import the VPN which you have downloaded from VPN gateway.
+
+3)While creating private endpoint in synapse select below options
+Resource Type:
+Microsoft.Synapse/workspaces
+
+Target Sub-resource:
+Dev
+
+How to check the Vnet Link
+search for private DNS zone
+Then under the DNS management ,go to virtual network links
+And then check auto registration is enabled or not
+
+To check the connection with Synapse
+ipconfig
+
+Right-click Notepad → Run as administrator.
+C:\Windows\System32\drivers\etc\hosts
+10.0.1.4    synapse-workspace-vishal.dev.azuresynapse.net
+
+
+
+
+
+ 

@@ -1,0 +1,274 @@
+How to Create a pipeline for the database to upload the .sql script
+
+1) Go to the SSMS and right click on the database from which you want the sql script
+2)Now click on Generate Scipts
+3)Then click on next
+4)Then select Script entire database and all database objects
+5)Then click on next
+6)Now click on Advanced
+Under the options
+Types of data to script:Schema and data
+Script Indexes:True
+Script Triggers:True
+
+This ensures:
+
+Tables
+Data
+Stored procedures
+Views
+Everything gets exported
+
+7)Save to the required destination
+8)Then click on next finish
+
+
+9)Now create the Repo as below structured
+
+repo/
+│
+├── sql/
+│   └── database_deployment.sql
+│
+└── .github/workflows/dev-db.yml
+
+10)Now push the code to the GitHub
+11)
+Add GitHub Secrets
+GitHub Repo
+   ↓
+Settings
+   ↓
+Secrets and variables
+   ↓
+Actions
+
+
+| Secret Name  | Value                           |
+| ------------ | ------------------------------- |
+| SQL_SERVER   | yourserver.database.windows.net |
+| SQL_DATABASE | DevDB                           |
+| SQL_USERNAME | sqladmin                        |
+| SQL_PASSWORD | Password                        |
+
+
+12)Dev-db.yml
+
+name: Deploy SQL Script to Dev DB
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-db:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install SQLCMD Tools
+      run: |
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+        curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
+        
+        sudo apt-get update
+        
+        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
+        
+        echo 'export PATH="$PATH:/opt/mssql-tools18/bin"' >> ~/.bashrc
+        source ~/.bashrc
+
+    - name: Verify SQL File Exists
+      run: |
+        ls -la sql/
+
+    - name: Deploy SQL Script to Azure SQL DB
+      run: |
+        /opt/mssql-tools18/bin/sqlcmd \
+        -S ${{ secrets.SQL_SERVER }} \
+        -d ${{ secrets.SQL_DATABASE }} \
+        -U ${{ secrets.SQL_USERNAME }} \
+        -P "${{ secrets.SQL_PASSWORD }}" \
+        -C \
+        -i sql/database_deployment.sql
+
+
+
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-basic --create-namespace --set controller.service.loadBalancerIP="172.185.30.6" --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"="terrarg02dev"
+
+kubectl get ns
+kubectl --context=terraaks01dev get svc -n ingress-basic
+kubectl --context=terraaks01dev apply -f deployment.yml
+kubectl --context=terraaks01dev apply -f service.yml
+kubectl --context=terraaks01dev apply -f ingress.yml
+kubectl --context=terraaks01dev get ingress
+
+
+helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-basic --create-namespace --set controller.service.loadBalancerIP="20.69.19.114" --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"="terrarg01dev"
+
+kubectl get ns
+kubectl --context=terraaks02dev get svc -n ingress-basic
+kubectl --context=terraaks02dev apply -f deployment.yml
+kubectl --context=terraaks02dev apply -f service.yml
+kubectl --context=terraaks02dev apply -f ingress.yml
+kubectl --context=terraaks02dev get ingress
+
+
+kubectl describe svc ingress-nginx-controller -n ingress-basic
+
+
+deployment.yml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: nginx
+
+  template:
+    metadata:
+      labels:
+        app: nginx
+
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+
+
+Service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+
+spec:
+  selector:
+    app: nginx
+
+  ports:
+  - port: 80
+    targetPort: 80
+
+  type: ClusterIP
+
+
+
+
+ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: nginx-ingress
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+
+        backend:
+          service:
+            name: nginx-service
+
+            port:
+              number: 80
+
+  
+i am using Traffic manager in which loadbalancer public ip of node is used
+1)Need to create an alert when hit is not going to any of the node
+2)triger alert when error 502 or any web app related issue
+4)Number of nodes and pods count
+
+
+taints:node
+tolerance : pods
+move vm from 1 resource group to other and nic and disk
+
+Lua scripting for changes done at ingress level for example rate limiting
+
+terraaks01
+20.69.19.114
+
+terraaks02
+172.185.30.6
+
+1)schedular for vm start and stop(started)
+2)Tag for rest of the resources(in progress)
+3)disable the public access of key vault and sql(need more clearity)
+4)SQL DB API 2014(done)
+5)Function app
+6)Taging is required if we create any new resource
+
+https://portal.azure.com/?feature.msaljs=true#view/Microsoft_AAD_DXP/AlertSummary.ReactView/alertId/77aef841-2de7-423f-aff9-8b95a939a1b2/alertName/Large%20increase%20in%20Conditional%20Access%20blocked%20sign-ins
+
+
+Policy
+
+Go to
+Azure Portal
+→ Policy
+→ Definitions
+→ + Policy Definition
+
+
+{
+  "mode": "Indexed",
+  "policyRule": {
+    "if": {
+      "anyOf": [
+        {
+          "field": "tags['Environment-Owner']",
+          "exists": "false"
+        },
+	{
+          "field": "tags['Platform-env']",
+          "exists": "false"
+        },
+        {
+          "field": "tags['Platform-Owner']",
+          "exists": "false"
+        }
+      ]
+    },
+    "then": {
+      "effect": "deny"
+    }
+  },
+  "parameters": {}
+}
+
+
+Assign the Policy
+Subscription
+
+
+sqladminuser
+
+
+
+
+SAS required to send image on mail.
+
+
+
+

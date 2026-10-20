@@ -1,0 +1,140 @@
+docker run -d `
+  -p 5000:5000 `
+  -e PRIMARYDB="your-primary-server.database.windows.net" `
+  -e SECONDARYDB="your-secondary-server.database.windows.net" `
+  -e DBUSER="your-username" `
+  -e DBPASSWORD="your-password" `
+  -e DBNAME="your-db-name" `
+  --name flask-app `
+  pyimage
+
+
+failovergroupvishal.database.windows.net
+failovergroupvishal.secondary.database.windows.net
+
+
+sum(rate(http_requests_total{status="200"}[5m]))
+sum(http_requests_total{status="200"})
+sum(http_requests_total{status=~"[45].."})
+
+
+Naggaro
+Deep hands-on knowledge of networking fundamentals, Linux operating systems, and CI/CD optimization strategies.
+Advanced expertise in Terraform, including reusable module design and best practices for large-scale, highly complex Azure environments.
+Proficiency in scripting or programming languages such as Python, Bash, or Go.
+Hands-on experience with the Microsoft Azure cloud platform.
+Strong experience with Docker and Kubernetes for containerization and orchestration.
+
+
+
+UST Global
+SRE, Azure, Docker, Kubernetes, Terraform, Python, Linux , Shell/Bash.
+
+
+
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: my-access360-ingress
+#   annotations:
+#     nginx.ingress.kubernetes.io/ssl-redirect: "false"  # Force redirect HTTP to HTTPS
+#     nginx.ingress.kubernetes.io/use-regex: "true"
+#     nginx.ingress.kubernetes.io/rewrite-target: /$2
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#   - hosts:
+#     - 4.224.254.150  # Your domain name or firewall IP
+#     secretName: myapp-ssl-secret  # Reference the TLS secret 
+  
+#   rules:
+#   - host: 4.224.254.150  # Your custom domain
+#     http:
+#       paths:
+#       - path: /app
+#         pathType: ImplementationSpecific
+#         backend:
+#           service:
+#             name: login-service-linux
+#             port:
+#               number: 5000
+
+#       - path: /argocd
+#         pathType: ImplementationSpecific
+#         backend:
+#           service:
+#             name: argocd-server
+#             port:
+#               number: 80
+
+#       - path: /promethus
+#         pathType: ImplementationSpecific
+#         backend:
+#           service:
+#             name: monitoring-kube-prometheus-prometheus
+#             port:
+#               number: 9090
+
+#       - path: /grafana
+#         pathType: ImplementationSpecific
+#         backend:
+#           service:
+#             name: monitoring-grafana
+#             port:
+#               number: 80
+
+
+kubectl get svc monitoring-grafana -n monitoring -o yaml > grafana-service.yml
+
+kubectl get svc monitoring-kube-prometheus-prometheus -n monitoring -o yaml > prometheus-service.yml
+
+terraform with count
+tearraform for release pipeline
+
+1)GitHub vs Gitlab (Amar)
+2)Enterprise version
+3)Microsoft fabric is not for GitLab
+CIO(GitLab)
+4)BI Analytis(Amit)
+5)Microsoft (freshpet department)
+6)D365(Dynamic 365)
+7)RSM(fresh d635 work by them)
+replit
+8)Network issue with synapse to work with other service
+
+
+Security Audit by the security team(Need of network team)
+Today's assessment resource group
+rg-freshpetdev
+rg-arcenabled
+
+freshpetlcsdatabasescheduledrefresh_group (no use)
+rg-avd-sessionhosts-prod-rsm(no use)
+rg-avd-sessionhosts-prod-rsm(no use)
+rg-sksoft-prod(Pending with Stephen)
+rg-sksoft(Pending with Stephen)
+
+
+Git Hub
+
+
+
+GitHub and GitLab assessment done , meeting pending will discuss tomorrow.
+
+replit
+317.7
+875.84
+
+SQL query (code, view stored, tables logic)need to check with Amit
+SQL backup
+Vm multi disk discussion with Stephen
+
+
+POC
+1)to import all the key vault values
+2)to login to sql db from SSMS without using public ip at firewall.
+3)how to see the file share in storage account
+4)Vm schedular
+
+
+
